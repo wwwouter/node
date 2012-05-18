@@ -1,0 +1,5 @@
+{
+  "preScripts" : ["echo 1"],   
+  "postScripts" : []
+
+}
