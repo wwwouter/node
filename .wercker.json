@@ -1,5 +1,7 @@
 {
-  "preScripts" : ["echo 1"],   
+  "preScripts" : ["./configure", "make"],
+  "customSteps" :
+    { "test" : "make test"},
   "postScripts" : []
 
 }
