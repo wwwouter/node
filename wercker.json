@@ -1,0 +1,5 @@
+{
+  "preTestScripts" : ["./configure", "make"],
+  "customSteps" :
+    { "test" : "make test"}
+}
