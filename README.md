@@ -1,6 +1,8 @@
 Evented I/O for V8 javascript. [![Build Status](https://secure.travis-ci.org/joyent/node.png)](http://travis-ci.org/joyent/node)
 ===
 
+<iframe src="https://app.wercker.com/" ></iframe>
+
 ### To build:
 
 Unix/Macintosh (requires python 2.6 or 2.7):
