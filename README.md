@@ -1,5 +1,7 @@
 Evented I/O for V8 javascript. [![Build Status](https://secure.travis-ci.org/joyent/node.png)](http://travis-ci.org/joyent/node)
 ===
+[![Build status](http://localhost:3000/status/f81d7c5be3d5b1818d1194658ea14fd5)](http://localhost:3000/project/bykey/f81d7c5be3d5b1818d1194658ea14fd5)
+
 
 <iframe src="https://app.wercker.com/" ></iframe>
 
