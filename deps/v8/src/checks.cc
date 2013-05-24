@@ -46,13 +46,14 @@ extern "C" void V8_Fatal(const char* file, int line, const char* format, ...) {
     va_start(arguments, format);
     i::OS::VPrintError(format, arguments);
     va_end(arguments);
-    i::OS::PrintError("\n#\n\n");
+    i::OS::PrintError("\n#\n");
+    i::OS::DumpBacktrace();
   }
   // First two times we may try to print a stack dump.
   if (fatal_error_handler_nesting_depth < 3) {
     if (i::FLAG_stack_trace_on_abort) {
       // Call this one twice on double fault
-      i::Isolate::Current()->PrintStack();
+      i::Isolate::Current()->PrintStack(stderr);
     }
   }
   i::OS::Abort();

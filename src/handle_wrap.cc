@@ -25,37 +25,26 @@
 
 namespace node {
 
-using v8::Array;
-using v8::Object;
-using v8::Handle;
-using v8::Local;
-using v8::Persistent;
-using v8::Value;
-using v8::HandleScope;
-using v8::FunctionTemplate;
-using v8::String;
-using v8::Function;
-using v8::TryCatch;
-using v8::Context;
 using v8::Arguments;
+using v8::Array;
+using v8::Context;
+using v8::Function;
+using v8::FunctionTemplate;
+using v8::Handle;
+using v8::HandleScope;
 using v8::Integer;
-
-
-#define UNWRAP \
-  assert(!args.Holder().IsEmpty()); \
-  assert(args.Holder()->InternalFieldCount() > 0); \
-  HandleWrap* wrap =  \
-      static_cast<HandleWrap*>(args.Holder()->GetPointerFromInternalField(0)); \
-  if (!wrap) { \
-    uv_err_t err; \
-    err.code = UV_EBADF; \
-    SetErrno(err); \
-    return scope.Close(Integer::New(-1)); \
-  }
+using v8::Local;
+using v8::Object;
+using v8::Persistent;
+using v8::String;
+using v8::TryCatch;
+using v8::Undefined;
+using v8::Value;
 
 
 // defined in node.cc
 extern ngx_queue_t handle_wrap_queue;
+static Persistent<String> close_sym;
 
 
 void HandleWrap::Initialize(Handle<Object> target) {
@@ -63,74 +52,71 @@ void HandleWrap::Initialize(Handle<Object> target) {
 }
 
 
-// This function is used only for process.stdout. It's put here instead of
-// in TTYWrap because here we have access to the Close binding.
-Handle<Value> HandleWrap::Unref(const Arguments& args) {
-  HandleScope scope;
+Handle<Value> HandleWrap::Ref(const Arguments& args) {
+  HandleScope scope(node_isolate);
 
-  UNWRAP
+  UNWRAP_NO_ABORT(HandleWrap)
 
-  // Calling unnecessarily is a no-op
-  if (wrap->unref) {
-    return v8::Undefined();
+  if (wrap != NULL && wrap->handle__ != NULL) {
+    uv_ref(wrap->handle__);
+    wrap->flags_ &= ~kUnref;
   }
 
-  wrap->unref = true;
-  uv_unref(uv_default_loop());
-
-  return v8::Undefined();
+  return v8::Undefined(node_isolate);
 }
 
 
-// Adds a reference to keep uv alive because of this thing.
-Handle<Value> HandleWrap::Ref(const Arguments& args) {
-  HandleScope scope;
+Handle<Value> HandleWrap::Unref(const Arguments& args) {
+  HandleScope scope(node_isolate);
 
-  UNWRAP
+  UNWRAP_NO_ABORT(HandleWrap)
 
-  // Calling multiple times is a no-op
-  if (!wrap->unref) {
-    return v8::Undefined();
+  if (wrap != NULL && wrap->handle__ != NULL) {
+    uv_unref(wrap->handle__);
+    wrap->flags_ |= kUnref;
   }
 
-  wrap->unref = false;
-  uv_ref(uv_default_loop());
-
-  return v8::Undefined();
+  return v8::Undefined(node_isolate);
 }
 
 
 Handle<Value> HandleWrap::Close(const Arguments& args) {
-  HandleScope scope;
+  HandleScope scope(node_isolate);
 
-  UNWRAP
+  HandleWrap *wrap = static_cast<HandleWrap*>(
+      args.This()->GetAlignedPointerFromInternalField(0));
 
   // guard against uninitialized handle or double close
-  if (wrap->handle__ == NULL) return v8::Null();
+  if (wrap == NULL || wrap->handle__ == NULL) {
+    return Undefined(node_isolate);
+  }
+
   assert(!wrap->object_.IsEmpty());
   uv_close(wrap->handle__, OnClose);
   wrap->handle__ = NULL;
 
-  HandleWrap::Ref(args);
+  if (args[0]->IsFunction()) {
+    if (close_sym.IsEmpty() == true) close_sym = NODE_PSYMBOL("close");
+    wrap->object_->Set(close_sym, args[0]);
+    wrap->flags_ |= kCloseCallback;
+  }
 
-  wrap->StateChange();
-
-  return v8::Null();
+  return Undefined(node_isolate);
 }
 
 
 HandleWrap::HandleWrap(Handle<Object> object, uv_handle_t* h) {
-  unref = false;
+  flags_ = 0;
   handle__ = h;
   if (h) {
     h->data = this;
   }
 
-  HandleScope scope;
+  HandleScope scope(node_isolate);
   assert(object_.IsEmpty());
   assert(object->InternalFieldCount() > 0);
-  object_ = v8::Persistent<v8::Object>::New(object);
-  object_->SetPointerInInternalField(0, this);
+  object_ = v8::Persistent<v8::Object>::New(node_isolate, object);
+  object_->SetAlignedPointerInInternalField(0, this);
   ngx_queue_insert_tail(&handle_wrap_queue, &handle_wrap_queue_);
 }
 
@@ -156,8 +142,13 @@ void HandleWrap::OnClose(uv_handle_t* handle) {
   // But the handle pointer should be gone.
   assert(wrap->handle__ == NULL);
 
-  wrap->object_->SetPointerInInternalField(0, NULL);
-  wrap->object_.Dispose();
+  if (wrap->flags_ & kCloseCallback) {
+    assert(close_sym.IsEmpty() == false);
+    MakeCallback(wrap->object_, close_sym, 0, NULL);
+  }
+
+  wrap->object_->SetAlignedPointerInInternalField(0, NULL);
+  wrap->object_.Dispose(node_isolate);
   wrap->object_.Clear();
 
   delete wrap;

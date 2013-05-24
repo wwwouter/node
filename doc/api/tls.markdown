@@ -49,8 +49,8 @@ server-side resources, which makes it a potential vector for denial-of-service
 attacks.
 
 To mitigate this, renegotiations are limited to three times every 10 minutes. An
-error is emitted on the [CleartextStream](#tls.CleartextStream) instance when
-the threshold is exceeded. The limits are configurable:
+error is emitted on the [CleartextStream][] instance when the threshold is
+exceeded. The limits are configurable:
 
   - `tls.CLIENT_RENEG_LIMIT`: renegotiation limit, default is 3.
 
@@ -76,12 +76,21 @@ handshake extensions allowing you:
     certificates.
 
 
+## tls.getCiphers()
+
+Returns an array with the names of the supported SSL ciphers.
+
+Example:
+
+    var ciphers = tls.getCiphers();
+    console.log(ciphers); // ['AES128-SHA', 'AES256-SHA', ...]
+
+
 ## tls.createServer(options, [secureConnectionListener])
 
-Creates a new [tls.Server](#tls.Server).
-The `connectionListener` argument is automatically set as a listener for the
-[secureConnection](#event_secureConnection_) event.
-The `options` object has these possibilities:
+Creates a new [tls.Server][].  The `connectionListener` argument is
+automatically set as a listener for the [secureConnection][] event.  The
+`options` object has these possibilities:
 
   - `pfx`: A string or `Buffer` containing the private key, certificate and
     CA certs of the server in PFX or PKCS12 format. (Mutually exclusive with
@@ -102,24 +111,40 @@ The `options` object has these possibilities:
   - `crl` : Either a string or list of strings of PEM encoded CRLs (Certificate
     Revocation List)
 
-  - `ciphers`: A string describing the ciphers to use or exclude. Consult
-    <http://www.openssl.org/docs/apps/ciphers.html#CIPHER_LIST_FORMAT> for
-    details on the format.
-    To mitigate [BEAST attacks]
-    (http://blog.ivanristic.com/2011/10/mitigating-the-beast-attack-on-tls.html),
-    it is recommended that you use this option in conjunction with the
-    `honorCipherOrder` option described below to prioritize the RC4 algorithm,
-    since it is a non-CBC cipher. A recommended cipher list follows:
-    `ECDHE-RSA-AES256-SHA:AES256-SHA:RC4-SHA:RC4:HIGH:!MD5:!aNULL:!EDH:!AESGCM`
+  - `ciphers`: A string describing the ciphers to use or exclude.
 
-  - `honorCipherOrder` :
-	When choosing a cipher, use the server's preferences instead of the client
-	preferences.
-	Note that if SSLv2 is used, the server will send its list of preferences
-	to the client, and the client chooses the cipher.
-	Although, this option is disabled by default, it is *recommended* that you
-	use this option in conjunction with the `ciphers` option to mitigate
-	BEAST attacks.
+    To mitigate [BEAST attacks] it is recommended that you use this option in
+    conjunction with the `honorCipherOrder` option described below to
+    prioritize the non-CBC cipher.
+
+    Defaults to
+    `ECDHE-RSA-AES128-SHA256:AES128-GCM-SHA256:RC4:HIGH:!MD5:!aNULL:!EDH`.
+    Consult the [OpenSSL cipher list format documentation] for details on the
+    format.
+
+    `ECDHE-RSA-AES128-SHA256` and `AES128-GCM-SHA256` are used when node.js is
+    linked against OpenSSL 1.0.1 or newer and the client speaks TLS 1.2, RC4 is
+    used as a secure fallback.
+
+    **NOTE**: Previous revisions of this section suggested `AES256-SHA` as an
+    acceptable cipher. Unfortunately, `AES256-SHA` is a CBC cipher and therefore
+    susceptible to BEAST attacks. Do *not* use it.
+
+  - `handshakeTimeout`: Abort the connection if the SSL/TLS handshake does not
+    finish in this many milliseconds. The default is 120 seconds.
+
+    A `'clientError'` is emitted on the `tls.Server` object whenever a handshake
+    times out.
+
+  - `honorCipherOrder` : When choosing a cipher, use the server's preferences
+    instead of the client preferences.
+
+    Note that if SSLv2 is used, the server will send its list of preferences
+    to the client, and the client chooses the cipher.
+
+    Although, this option is disabled by default, it is *recommended* that you
+    use this option in conjunction with the `ciphers` option to mitigate
+    BEAST attacks.
 
   - `requestCert`: If `true` the server will request a certificate from
     clients that connect and attempt to verify that certificate. Default:
@@ -138,6 +163,10 @@ The `options` object has these possibilities:
     (You can use `crypto.createCredentials(...).context` to get proper
     SecureContext). If `SNICallback` wasn't provided - default callback with
     high-level API will be used (see below).
+
+  - `sessionTimeout`: An integer specifying the seconds after which TLS
+    session identifiers and TLS session tickets created by the server are
+    timed out. See [SSL_CTX_set_timeout] for more details.
 
   - `sessionIdContext`: A string containing a opaque identifier for session
     resumption. If `requestCert` is `true`, the default is MD5 hash value
@@ -199,8 +228,17 @@ You can test this server by connecting to it with `openssl s_client`:
     openssl s_client -connect 127.0.0.1:8000
 
 
-## tls.connect(options, [secureConnectListener])
-## tls.connect(port, [host], [options], [secureConnectListener])
+## tls.SLAB_BUFFER_SIZE
+
+Size of slab buffer used by all tls servers and clients.
+Default: `10 * 1024 * 1024`.
+
+
+Don't change the defaults unless you know what you are doing.
+
+
+## tls.connect(options, [callback])
+## tls.connect(port, [host], [options], [callback])
 
 Creates a new client connection to the given `port` and `host` (old API) or
 `options.port` and `options.host`. (If `host` is omitted, it defaults to
@@ -231,7 +269,7 @@ Creates a new client connection to the given `port` and `host` (old API) or
 
   - `rejectUnauthorized`: If `true`, the server certificate is verified against
     the list of supplied CAs. An `'error'` event is emitted if verification
-    fails. Default: `false`.
+    fails. Default: `true`.
 
   - `NPNProtocols`: An array of string or `Buffer` containing supported NPN
     protocols. `Buffer` should have following format: `0x05hello0x05world`,
@@ -240,10 +278,10 @@ Creates a new client connection to the given `port` and `host` (old API) or
 
   - `servername`: Servername for SNI (Server Name Indication) TLS extension.
 
-The `secureConnectListener` parameter will be added as a listener for the
-['secureConnect'](#event_secureConnect_) event.
+The `callback` parameter will be added as a listener for the
+['secureConnect'][] event.
 
-`tls.connect()` returns a [CleartextStream](#tls.CleartextStream) object.
+`tls.connect()` returns a [CleartextStream][] object.
 
 Here is an example of a client of echo server as described previously:
 
@@ -315,8 +353,8 @@ and the cleartext one is used as a replacement for the initial encrypted stream.
    automatically reject clients with invalid certificates. Only applies to
    servers with `requestCert` enabled.
 
-`tls.createSecurePair()` returns a SecurePair object with
-[cleartext](#tls.CleartextStream) and `encrypted` stream properties.
+`tls.createSecurePair()` returns a SecurePair object with [cleartext][] and
+`encrypted` stream properties.
 
 ## Class: SecurePair
 
@@ -342,9 +380,8 @@ connections using TLS or SSL.
 `function (cleartextStream) {}`
 
 This event is emitted after a new connection has been successfully
-handshaked. The argument is a instance of
-[CleartextStream](#tls.CleartextStream). It has all the common stream methods
-and events.
+handshaked. The argument is a instance of [CleartextStream][]. It has all the
+common stream methods and events.
 
 `cleartextStream.authorized` is a boolean value which indicates if the
 client has verified by one of the supplied certificate authorities for the
@@ -359,10 +396,31 @@ SNI.
 
 ### Event: 'clientError'
 
-`function (exception) { }`
+`function (exception, securePair) { }`
 
 When a client connection emits an 'error' event before secure connection is
 established - it will be forwarded here.
+
+`securePair` is the `tls.SecurePair` that the error originated from.
+
+
+### Event: 'newSession'
+
+`function (sessionId, sessionData) { }`
+
+Emitted on creation of TLS session. May be used to store sessions in external
+storage.
+
+
+### Event: 'resumeSession'
+
+`function (sessionId, callback) { }`
+
+Emitted when client wants to resume previous TLS session. Event listener may
+perform lookup in external storage using given `sessionId`, and invoke
+`callback(null, sessionData)` once finished. If session can't be resumed
+(i.e. doesn't exist in storage) one may call `callback(null, null)`. Calling
+`callback(err)` will terminate incoming connection and destroy socket.
 
 
 ### server.listen(port, [host], [callback])
@@ -386,8 +444,8 @@ event.
 ### server.address()
 
 Returns the bound address, the address family name and port of the
-server as reported by the operating system.
-See [net.Server.address()](net.html#server.address) for more information.
+server as reported by the operating system.  See [net.Server.address()][] for
+more information.
 
 ### server.addContext(hostname, credentials)
 
@@ -405,13 +463,22 @@ gets high.
 The number of concurrent connections on the server.
 
 
+## Class: CryptoStream
+
+This is an encrypted stream.
+
+### cryptoStream.bytesWritten
+
+A proxy to the underlying socket's bytesWritten accessor, this will return
+the total bytes written to the socket, *including the TLS overhead*.
+
 ## Class: tls.CleartextStream
 
 This is a stream on top of the *Encrypted* stream that makes it possible to
 read/write an encrypted data as a cleartext data.
 
-This instance implements a duplex [Stream](stream.html) interfaces.
-It has all the common stream methods and events.
+This instance implements a duplex [Stream][] interfaces.  It has all the
+common stream methods and events.
 
 A ClearTextStream is the `clear` member of a SecurePair object.
 
@@ -489,3 +556,21 @@ The string representation of the remote IP address. For example,
 ### cleartextStream.remotePort
 
 The numeric representation of the remote port. For example, `443`.
+
+### cleartextStream.localAddress
+
+The string representation of the local IP address.
+
+### cleartextStream.localPort
+
+The numeric representation of the local port.
+
+[OpenSSL cipher list format documentation]: http://www.openssl.org/docs/apps/ciphers.html#CIPHER_LIST_FORMAT
+[BEAST attacks]: http://blog.ivanristic.com/2011/10/mitigating-the-beast-attack-on-tls.html
+[CleartextStream]: #tls_class_tls_cleartextstream
+[net.Server.address()]: net.html#net_server_address
+['secureConnect']: #tls_event_secureconnect
+[secureConnection]: #tls_event_secureconnection
+[Stream]: stream.html#stream_stream
+[tls.Server]: #tls_class_tls_server
+[SSL_CTX_set_timeout]: http://www.openssl.org/docs/ssl/SSL_CTX_set_timeout.html

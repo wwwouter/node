@@ -175,7 +175,7 @@ static void Generate_DebugBreakCallHelper(MacroAssembler* masm,
     // Read current padding counter and skip corresponding number of words.
     __ pop(unused_reg);
     // We divide stored value by 2 (untagging) and multiply it by word's size.
-    STATIC_ASSERT(kSmiTagSize == 1);
+    STATIC_ASSERT(kSmiTagSize == 1 && kSmiShiftSize == 0);
     __ lea(esp, Operand(esp, unused_reg, times_half_pointer_size, 0));
 
     // Get rid of the internal frame.
@@ -237,6 +237,15 @@ void Debug::GenerateKeyedStoreICDebugBreak(MacroAssembler* masm) {
   // -----------------------------------
   Generate_DebugBreakCallHelper(
       masm, eax.bit() | ecx.bit() | edx.bit(), 0, false);
+}
+
+
+void Debug::GenerateCompareNilICDebugBreak(MacroAssembler* masm) {
+  // Register state for CompareNil IC
+  // ----------- S t a t e -------------
+  //  -- eax    : value
+  // -----------------------------------
+  Generate_DebugBreakCallHelper(masm, eax.bit(), 0, false);
 }
 
 

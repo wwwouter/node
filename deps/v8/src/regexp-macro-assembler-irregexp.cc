@@ -38,8 +38,10 @@ namespace internal {
 
 #ifdef V8_INTERPRETED_REGEXP
 
-RegExpMacroAssemblerIrregexp::RegExpMacroAssemblerIrregexp(Vector<byte> buffer)
-    : buffer_(buffer),
+RegExpMacroAssemblerIrregexp::RegExpMacroAssemblerIrregexp(Vector<byte> buffer,
+                                                           Zone* zone)
+    : RegExpMacroAssembler(zone),
+      buffer_(buffer),
       pc_(0),
       own_buffer_(false),
       advance_current_end_(kInvalidPC) {
@@ -203,8 +205,9 @@ void RegExpMacroAssemblerIrregexp::PushBacktrack(Label* l) {
 }
 
 
-void RegExpMacroAssemblerIrregexp::Succeed() {
+bool RegExpMacroAssemblerIrregexp::Succeed() {
   Emit(BC_SUCCEED, 0);
+  return false;  // Restart matching for global regexp not supported.
 }
 
 
@@ -407,17 +410,6 @@ void RegExpMacroAssemblerIrregexp::CheckNotBackReferenceIgnoreCase(
 }
 
 
-void RegExpMacroAssemblerIrregexp::CheckNotRegistersEqual(int reg1,
-                                                          int reg2,
-                                                          Label* on_not_equal) {
-  ASSERT(reg1 >= 0);
-  ASSERT(reg1 <= kMaxRegister);
-  Emit(BC_CHECK_NOT_REGS_EQUAL, reg1);
-  Emit32(reg2);
-  EmitOrLink(on_not_equal);
-}
-
-
 void RegExpMacroAssemblerIrregexp::CheckCharacters(
   Vector<const uc16> str,
   int cp_offset,
@@ -487,7 +479,7 @@ int RegExpMacroAssemblerIrregexp::length() {
 
 
 void RegExpMacroAssemblerIrregexp::Copy(Address a) {
-  memcpy(a, buffer_.start(), length());
+  OS::MemCopy(a, buffer_.start(), length());
 }
 
 
@@ -496,7 +488,7 @@ void RegExpMacroAssemblerIrregexp::Expand() {
   Vector<byte> old_buffer = buffer_;
   buffer_ = Vector<byte>::New(old_buffer.length() * 2);
   own_buffer_ = true;
-  memcpy(buffer_.start(), old_buffer.start(), old_buffer.length());
+  OS::MemCopy(buffer_.start(), old_buffer.start(), old_buffer.length());
   if (old_buffer_was_our_own) {
     old_buffer.Dispose();
   }

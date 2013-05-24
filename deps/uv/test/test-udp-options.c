@@ -38,7 +38,7 @@ TEST_IMPL(udp_options) {
   r = uv_udp_init(loop, &h);
   ASSERT(r == 0);
 
-  uv_unref(loop); /* don't keep the loop alive */
+  uv_unref((uv_handle_t*)&h); /* don't keep the loop alive */
 
   r = uv_udp_bind(&h, uv_ip4_addr("0.0.0.0", TEST_PORT), 0);
   ASSERT(r == 0);
@@ -79,8 +79,9 @@ TEST_IMPL(udp_options) {
   ASSERT(uv_last_error(loop).code == UV_EINVAL);
   /* don't test ttl=-1, it's a valid value on some platforms */
 
-  r = uv_run(loop);
+  r = uv_run(loop, UV_RUN_DEFAULT);
   ASSERT(r == 0);
 
+  MAKE_VALGRIND_HAPPY();
   return 0;
 }

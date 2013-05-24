@@ -108,7 +108,7 @@ static void connect_cb(uv_connect_t* req, int status) {
 }
 
 
-static void make_many_connections() {
+static void make_many_connections(void) {
   tcp_conn* conn;
   struct sockaddr_in addr;
   int r, i;
@@ -200,6 +200,7 @@ void spawn_helper(uv_pipe_t* channel,
   char exepath[1024];
   char* args[3];
   int r;
+  uv_stdio_container_t stdio[1];
 
   r = uv_pipe_init(uv_default_loop(), channel, 1);
   ASSERT(r == 0);
@@ -218,7 +219,12 @@ void spawn_helper(uv_pipe_t* channel,
   options.file = exepath;
   options.args = args;
   options.exit_cb = exit_cb;
-  options.stdin_stream = channel;
+
+  options.stdio = stdio;
+  options.stdio[0].flags = UV_CREATE_PIPE |
+    UV_READABLE_PIPE | UV_WRITABLE_PIPE;
+  options.stdio[0].data.stream = (uv_stream_t*)channel;
+  options.stdio_count = 1;
 
   r = uv_spawn(uv_default_loop(), process, options);
   ASSERT(r == 0);
@@ -312,9 +318,10 @@ static int run_ipc_test(const char* helper, uv_read2_cb read_cb) {
   spawn_helper(&channel, &process, helper);
   uv_read2_start((uv_stream_t*)&channel, on_alloc, read_cb);
 
-  r = uv_run(uv_default_loop());
+  r = uv_run(uv_default_loop(), UV_RUN_DEFAULT);
   ASSERT(r == 0);
 
+  MAKE_VALGRIND_HAPPY();
   return 0;
 }
 
@@ -368,6 +375,7 @@ TEST_IMPL(listen_with_simultaneous_accepts) {
   ASSERT(r == 0);
   ASSERT(server.reqs_pending == 32);
 
+  MAKE_VALGRIND_HAPPY();
   return 0;
 }
 
@@ -390,6 +398,7 @@ TEST_IMPL(listen_no_simultaneous_accepts) {
   ASSERT(r == 0);
   ASSERT(server.reqs_pending == 1);
 
+  MAKE_VALGRIND_HAPPY();
   return 0;
 }
 #endif
@@ -397,7 +406,7 @@ TEST_IMPL(listen_no_simultaneous_accepts) {
 
 /* Everything here runs in a child process. */
 
-tcp_conn conn;
+static tcp_conn conn;
 
 
 static void close_cb(uv_handle_t* handle) {
@@ -558,17 +567,18 @@ int ipc_helper(int listen_after_write) {
     ASSERT(r == 0);
   }
 
-  r = uv_run(uv_default_loop());
+  r = uv_run(uv_default_loop(), UV_RUN_DEFAULT);
   ASSERT(r == 0);
 
   ASSERT(connection_accepted == 1);
   ASSERT(close_cb_called == 3);
 
+  MAKE_VALGRIND_HAPPY();
   return 0;
 }
 
 
-int ipc_helper_tcp_connection() {
+int ipc_helper_tcp_connection(void) {
   /*
    * This is launched from test-ipc.c. stdin is a duplex channel that we
    * over which a handle will be transmitted.
@@ -603,12 +613,13 @@ int ipc_helper_tcp_connection() {
   r = uv_tcp_connect(&conn.conn_req, (uv_tcp_t*)&conn.conn, addr, connect_child_process_cb);
   ASSERT(r == 0);
 
-  r = uv_run(uv_default_loop());
+  r = uv_run(uv_default_loop(), UV_RUN_DEFAULT);
   ASSERT(r == 0);
 
   ASSERT(tcp_conn_read_cb_called == 1);
   ASSERT(tcp_conn_write_cb_called == 1);
   ASSERT(close_cb_called == 4);
 
+  MAKE_VALGRIND_HAPPY();
   return 0;
 }

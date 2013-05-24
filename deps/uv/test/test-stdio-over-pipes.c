@@ -34,7 +34,8 @@ static int close_cb_called;
 static int exit_cb_called;
 static int on_read_cb_called;
 static int after_write_cb_called;
-uv_pipe_t out, in;
+static uv_pipe_t in;
+static uv_pipe_t out;
 static uv_loop_t* loop;
 #define OUTPUT_SIZE 1024
 static char output[OUTPUT_SIZE];
@@ -115,14 +116,21 @@ static void on_read(uv_stream_t* tcp, ssize_t nread, uv_buf_t rdbuf) {
 TEST_IMPL(stdio_over_pipes) {
   int r;
   uv_process_t process;
+  uv_stdio_container_t stdio[2];
+
   loop = uv_default_loop();
 
   init_process_options("stdio_over_pipes_helper", exit_cb);
 
   uv_pipe_init(loop, &out, 0);
-  options.stdout_stream = &out;
   uv_pipe_init(loop, &in, 0);
-  options.stdin_stream = &in;
+
+  options.stdio = stdio;
+  options.stdio[0].flags = UV_CREATE_PIPE | UV_READABLE_PIPE;
+  options.stdio[0].data.stream = (uv_stream_t*)&in;
+  options.stdio[1].flags = UV_CREATE_PIPE | UV_WRITABLE_PIPE;
+  options.stdio[1].data.stream = (uv_stream_t*)&out;
+  options.stdio_count = 2;
 
   r = uv_spawn(loop, &process, options);
   ASSERT(r == 0);
@@ -130,7 +138,7 @@ TEST_IMPL(stdio_over_pipes) {
   r = uv_read_start((uv_stream_t*) &out, on_alloc, on_read);
   ASSERT(r == 0);
 
-  r = uv_run(uv_default_loop());
+  r = uv_run(uv_default_loop(), UV_RUN_DEFAULT);
   ASSERT(r == 0);
 
   ASSERT(on_read_cb_called > 1);
@@ -140,6 +148,7 @@ TEST_IMPL(stdio_over_pipes) {
   ASSERT(memcmp("hello world\n", output, 12) == 0);
   ASSERT(output_used == 12);
 
+  MAKE_VALGRIND_HAPPY();
   return 0;
 }
 
@@ -174,7 +183,7 @@ static uv_buf_t on_read_alloc(uv_handle_t* handle, size_t suggested_size) {
 }
 
 
-int stdio_over_pipes_helper() {
+int stdio_over_pipes_helper(void) {
   /* Write several buffers to test that the write order is preserved. */
   char* buffers[] = {
     "he",
@@ -188,7 +197,8 @@ int stdio_over_pipes_helper() {
 
   uv_write_t write_req[ARRAY_SIZE(buffers)];
   uv_buf_t buf[ARRAY_SIZE(buffers)];
-  int r, i;
+  unsigned int i;
+  int r;
   uv_loop_t* loop = uv_default_loop();
 
   ASSERT(UV_NAMED_PIPE == uv_guess_handle(0));
@@ -203,8 +213,8 @@ int stdio_over_pipes_helper() {
   uv_pipe_open(&stdout_pipe, 1);
 
   /* Unref both stdio handles to make sure that all writes complete. */
-  uv_unref(loop);
-  uv_unref(loop);
+  uv_unref((uv_handle_t*)&stdin_pipe);
+  uv_unref((uv_handle_t*)&stdout_pipe);
 
   for (i = 0; i < ARRAY_SIZE(buffers); i++) {
     buf[i] = uv_buf_init((char*)buffers[i], strlen(buffers[i]));
@@ -216,24 +226,25 @@ int stdio_over_pipes_helper() {
     ASSERT(r == 0);
   }
 
-  uv_run(loop);
+  uv_run(loop, UV_RUN_DEFAULT);
 
   ASSERT(after_write_called == 7);
   ASSERT(on_pipe_read_called == 0);
   ASSERT(close_cb_called == 0);
 
-  uv_ref(loop);
-  uv_ref(loop);
+  uv_ref((uv_handle_t*)&stdout_pipe);
+  uv_ref((uv_handle_t*)&stdin_pipe);
 
   r = uv_read_start((uv_stream_t*)&stdin_pipe, on_read_alloc,
     on_pipe_read);
   ASSERT(r == 0);
 
-  uv_run(loop);
+  uv_run(loop, UV_RUN_DEFAULT);
 
   ASSERT(after_write_called == 7);
   ASSERT(on_pipe_read_called == 1);
   ASSERT(close_cb_called == 2);
 
+  MAKE_VALGRIND_HAPPY();
   return 0;
 }

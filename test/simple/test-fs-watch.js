@@ -24,7 +24,9 @@ var assert = require('assert');
 var path = require('path');
 var fs = require('fs');
 
-var expectFilePath = process.platform == 'win32' || process.platform == 'linux';
+var expectFilePath = process.platform === 'win32' ||
+                     process.platform === 'linux' ||
+                     process.platform === 'darwin';
 
 var watchSeenOne = 0;
 var watchSeenTwo = 0;
@@ -58,23 +60,14 @@ try { fs.rmdirSync(testsubdir); } catch (e) { }
 
 fs.writeFileSync(filepathOne, 'hello');
 
-assert.throws(
-    function() {
-      fs.watch(filepathOne);
-    },
-    function(e) {
-      return e.message === 'watch requires a listener function';
-    }
-);
-
 assert.doesNotThrow(
     function() {
-      var watcher = fs.watch(filepathOne, function(event, filename) {
+      var watcher = fs.watch(filepathOne)
+      watcher.on('change', function(event, filename) {
         assert.equal('change', event);
+
         if (expectFilePath) {
           assert.equal('watch.txt', filename);
-        } else {
-          assert.equal(null, filename);
         }
         watcher.close();
         ++watchSeenOne;
@@ -91,23 +84,13 @@ process.chdir(testDir);
 
 fs.writeFileSync(filepathTwoAbs, 'howdy');
 
-assert.throws(
-    function() {
-      fs.watch(filepathTwo);
-    },
-    function(e) {
-      return e.message === 'watch requires a listener function';
-    }
-);
-
 assert.doesNotThrow(
     function() {
       var watcher = fs.watch(filepathTwo, function(event, filename) {
         assert.equal('change', event);
+
         if (expectFilePath) {
           assert.equal('hasOwnProperty', filename);
-        } else {
-          assert.equal(null, filename);
         }
         watcher.close();
         ++watchSeenTwo;
@@ -125,7 +108,8 @@ try { fs.mkdirSync(testsubdir, 0700); } catch (e) {}
 assert.doesNotThrow(
     function() {
       var watcher = fs.watch(testsubdir, function(event, filename) {
-        assert.equal('rename', event);
+        var renameEv = process.platform === 'sunos' ? 'change' : 'rename';
+        assert.equal(renameEv, event);
         if (expectFilePath) {
           assert.equal('newfile.txt', filename);
         } else {

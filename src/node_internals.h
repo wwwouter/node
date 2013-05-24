@@ -22,9 +22,17 @@
 #ifndef SRC_NODE_INTERNALS_H_
 #define SRC_NODE_INTERNALS_H_
 
+#include <stdlib.h>
+
 #include "v8.h"
 
 namespace node {
+
+// Defined in node.cc
+extern v8::Isolate* node_isolate;
+
+// Defined in node.cc at startup.
+extern v8::Persistent<v8::Object> process;
 
 #ifdef _WIN32
 // emulate snprintf() on windows, _snprintf() doesn't zero-terminate the buffer
@@ -38,6 +46,12 @@ inline static int snprintf(char* buf, unsigned int len, const char* fmt, ...) {
   va_end(ap);
   return n;
 }
+#endif
+
+#if defined(__x86_64__)
+# define BITS_PER_LONG 64
+#else
+# define BITS_PER_LONG 32
 #endif
 
 #ifndef offset_of
@@ -64,7 +78,7 @@ inline static int snprintf(char* buf, unsigned int len, const char* fmt, ...) {
 // sometimes fails to resolve it...
 #define THROW_ERROR(fun)                                                      \
   do {                                                                        \
-    v8::HandleScope scope;                                                    \
+    v8::HandleScope scope(node_isolate);                                      \
     return v8::ThrowException(fun(v8::String::New(errmsg)));                  \
   }                                                                           \
   while (0)
@@ -80,6 +94,24 @@ inline static v8::Handle<v8::Value> ThrowTypeError(const char* errmsg) {
 inline static v8::Handle<v8::Value> ThrowRangeError(const char* errmsg) {
   THROW_ERROR(v8::Exception::RangeError);
 }
+
+#define UNWRAP(type)                                                        \
+  assert(!args.This().IsEmpty());                                           \
+  assert(args.This()->InternalFieldCount() > 0);                            \
+  type* wrap = static_cast<type*>(                                          \
+      args.This()->GetAlignedPointerFromInternalField(0));                  \
+  if (!wrap) {                                                              \
+    fprintf(stderr, #type ": Aborting due to unwrap failure at %s:%d\n",    \
+            __FILE__, __LINE__);                                            \
+    abort();                                                                \
+  }
+
+v8::Handle<v8::Value> FromConstructorTemplate(
+    v8::Persistent<v8::FunctionTemplate> t,
+    const v8::Arguments& args);
+
+// allow for quick domain check
+extern bool using_domains;
 
 } // namespace node
 

@@ -28,16 +28,18 @@ var objects = { foo: 'bar', baz: {}, num: 42, arr: [1,2,3] };
 objects.baz.asdf = objects;
 
 var serverCaught = 0;
-var clientCaught = 0
+var clientCaught = 0;
+var disposeEmit = 0;
 
 var server = http.createServer(function(req, res) {
   var dom = domain.create();
+  req.resume();
   dom.add(req);
   dom.add(res);
 
   dom.on('error', function(er) {
     serverCaught++;
-    console.log('server error', er);
+    console.log('horray! got a server error', er);
     // try to send a 500.  If that fails, oh well.
     res.writeHead(500, {'content-type':'text/plain'});
     res.end(er.stack || er.message || 'Unknown error');
@@ -80,8 +82,7 @@ function next() {
     dom.on('error', function(er) {
       clientCaught++;
       console.log('client error', er);
-      // kill everything.
-      dom.dispose();
+      req.socket.destroy();
     });
 
     var req = http.get({ host: 'localhost', port: common.PORT, path: p });
@@ -101,6 +102,7 @@ function next() {
         d += c;
       });
       res.on('end', function() {
+        console.error('trying to parse json', d);
         d = JSON.parse(d);
         console.log('json!', d);
       });

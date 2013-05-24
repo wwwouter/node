@@ -22,15 +22,12 @@
 #include "uv.h"
 #include "uv-common.h"
 
+#include <stdio.h>
 #include <assert.h>
 #include <stddef.h> /* NULL */
 #include <stdlib.h> /* malloc */
 #include <string.h> /* memset */
 
-/* use inet_pton from c-ares if necessary */
-#include "ares_config.h"
-#include "ares/inet_net_pton.h"
-#include "ares/inet_ntop.h"
 
 #define XX(uc, lc) case UV_##uc: return sizeof(uv_##lc##_t);
 
@@ -87,7 +84,7 @@ size_t uv_strlcat(char* dst, const char* src, size_t size) {
 }
 
 
-uv_buf_t uv_buf_init(char* base, size_t len) {
+uv_buf_t uv_buf_init(char* base, unsigned int len) {
   uv_buf_t buf;
   buf.base = base;
   buf.len = len;
@@ -181,100 +178,57 @@ struct sockaddr_in6 uv_ip6_addr(const char* ip, int port) {
 
   addr.sin6_family = AF_INET6;
   addr.sin6_port = htons(port);
-  ares_inet_pton(AF_INET6, ip, &addr.sin6_addr);
+  uv_inet_pton(AF_INET6, ip, &addr.sin6_addr);
 
   return addr;
 }
 
 
 int uv_ip4_name(struct sockaddr_in* src, char* dst, size_t size) {
-  const char* d = ares_inet_ntop(AF_INET, &src->sin_addr, dst, size);
-  return d != dst;
+  uv_err_t err = uv_inet_ntop(AF_INET, &src->sin_addr, dst, size);
+  return err.code != UV_OK;
 }
 
 
 int uv_ip6_name(struct sockaddr_in6* src, char* dst, size_t size) {
-  const char* d = ares_inet_ntop(AF_INET6, &src->sin6_addr, dst, size);
-  return d != dst;
-}
-
-
-static int cmp_ares_tasks(const uv_ares_task_t* a, const uv_ares_task_t* b) {
-  if (a->sock < b->sock) return -1;
-  if (a->sock > b->sock) return 1;
-  return 0;
-}
-
-
-RB_GENERATE_STATIC(uv__ares_tasks, uv_ares_task_s, node, cmp_ares_tasks)
-
-
-/* add ares handle to list */
-void uv_add_ares_handle(uv_loop_t* loop, uv_ares_task_t* handle) {
-  assert(loop == handle->loop);
-  RB_INSERT(uv__ares_tasks, &loop->uv_ares_handles_, handle);
-}
-
-
-/* find matching ares handle in list */
-uv_ares_task_t* uv_find_ares_handle(uv_loop_t* loop, ares_socket_t sock) {
-  uv_ares_task_t handle;
-  handle.sock = sock;
-  return RB_FIND(uv__ares_tasks, &loop->uv_ares_handles_, &handle);
-}
-
-
-/* remove ares handle in list */
-void uv_remove_ares_handle(uv_ares_task_t* handle) {
-  RB_REMOVE(uv__ares_tasks, &handle->loop->uv_ares_handles_, handle);
-}
-
-
-/* Returns 1 if the uv_ares_handles_ list is empty. 0 otherwise. */
-int uv_ares_handles_empty(uv_loop_t* loop) {
-  return RB_EMPTY(&loop->uv_ares_handles_);
+  uv_err_t err = uv_inet_ntop(AF_INET6, &src->sin6_addr, dst, size);
+  return err.code != UV_OK;
 }
 
 
 int uv_tcp_bind(uv_tcp_t* handle, struct sockaddr_in addr) {
-  if (handle->type != UV_TCP || addr.sin_family != AF_INET) {
-    uv__set_artificial_error(handle->loop, UV_EFAULT);
-    return -1;
-  }
-
-  return uv__tcp_bind(handle, addr);
+  if (handle->type != UV_TCP || addr.sin_family != AF_INET)
+    return uv__set_artificial_error(handle->loop, UV_EINVAL);
+  else
+    return uv__tcp_bind(handle, addr);
 }
 
 
 int uv_tcp_bind6(uv_tcp_t* handle, struct sockaddr_in6 addr) {
-  if (handle->type != UV_TCP || addr.sin6_family != AF_INET6) {
-    uv__set_artificial_error(handle->loop, UV_EFAULT);
-    return -1;
-  }
-
-  return uv__tcp_bind6(handle, addr);
+  if (handle->type != UV_TCP || addr.sin6_family != AF_INET6)
+    return uv__set_artificial_error(handle->loop, UV_EINVAL);
+  else
+    return uv__tcp_bind6(handle, addr);
 }
 
 
-int uv_udp_bind(uv_udp_t* handle, struct sockaddr_in addr,
-    unsigned int flags) {
-  if (handle->type != UV_UDP || addr.sin_family != AF_INET) {
-    uv__set_artificial_error(handle->loop, UV_EFAULT);
-    return -1;
-  }
-
-  return uv__udp_bind(handle, addr, flags);
+int uv_udp_bind(uv_udp_t* handle,
+                struct sockaddr_in addr,
+                unsigned int flags) {
+  if (handle->type != UV_UDP || addr.sin_family != AF_INET)
+    return uv__set_artificial_error(handle->loop, UV_EINVAL);
+  else
+    return uv__udp_bind(handle, addr, flags);
 }
 
 
-int uv_udp_bind6(uv_udp_t* handle, struct sockaddr_in6 addr,
-    unsigned int flags) {
-  if (handle->type != UV_UDP || addr.sin6_family != AF_INET6) {
-    uv__set_artificial_error(handle->loop, UV_EFAULT);
-    return -1;
-  }
-
-  return uv__udp_bind6(handle, addr, flags);
+int uv_udp_bind6(uv_udp_t* handle,
+                 struct sockaddr_in6 addr,
+                 unsigned int flags) {
+  if (handle->type != UV_UDP || addr.sin6_family != AF_INET6)
+    return uv__set_artificial_error(handle->loop, UV_EINVAL);
+  else
+    return uv__udp_bind6(handle, addr, flags);
 }
 
 
@@ -282,12 +236,10 @@ int uv_tcp_connect(uv_connect_t* req,
                    uv_tcp_t* handle,
                    struct sockaddr_in address,
                    uv_connect_cb cb) {
-  if (handle->type != UV_TCP || address.sin_family != AF_INET) {
-    uv__set_artificial_error(handle->loop, UV_EINVAL);
-    return -1;
-  }
-
-  return uv__tcp_connect(req, handle, address, cb);
+  if (handle->type != UV_TCP || address.sin_family != AF_INET)
+    return uv__set_artificial_error(handle->loop, UV_EINVAL);
+  else
+    return uv__tcp_connect(req, handle, address, cb);
 }
 
 
@@ -295,14 +247,59 @@ int uv_tcp_connect6(uv_connect_t* req,
                     uv_tcp_t* handle,
                     struct sockaddr_in6 address,
                     uv_connect_cb cb) {
-  if (handle->type != UV_TCP || address.sin6_family != AF_INET6) {
-    uv__set_artificial_error(handle->loop, UV_EINVAL);
-    return -1;
-  }
-
-  return uv__tcp_connect6(req, handle, address, cb);
+  if (handle->type != UV_TCP || address.sin6_family != AF_INET6)
+    return uv__set_artificial_error(handle->loop, UV_EINVAL);
+  else
+    return uv__tcp_connect6(req, handle, address, cb);
 }
 
+
+int uv_udp_send(uv_udp_send_t* req,
+                uv_udp_t* handle,
+                uv_buf_t bufs[],
+                int bufcnt,
+                struct sockaddr_in addr,
+                uv_udp_send_cb send_cb) {
+  if (handle->type != UV_UDP || addr.sin_family != AF_INET) {
+    return uv__set_artificial_error(handle->loop, UV_EINVAL);
+  }
+
+  return uv__udp_send(req, handle, bufs, bufcnt, addr, send_cb);
+}
+
+
+int uv_udp_send6(uv_udp_send_t* req,
+                 uv_udp_t* handle,
+                 uv_buf_t bufs[],
+                 int bufcnt,
+                 struct sockaddr_in6 addr,
+                 uv_udp_send_cb send_cb) {
+  if (handle->type != UV_UDP || addr.sin6_family != AF_INET6) {
+    return uv__set_artificial_error(handle->loop, UV_EINVAL);
+  }
+
+  return uv__udp_send6(req, handle, bufs, bufcnt, addr, send_cb);
+}
+
+
+int uv_udp_recv_start(uv_udp_t* handle,
+                      uv_alloc_cb alloc_cb,
+                      uv_udp_recv_cb recv_cb) {
+  if (handle->type != UV_UDP || alloc_cb == NULL || recv_cb == NULL) {
+    return uv__set_artificial_error(handle->loop, UV_EINVAL);
+  }
+
+  return uv__udp_recv_start(handle, alloc_cb, recv_cb);
+}
+
+
+int uv_udp_recv_stop(uv_udp_t* handle) {
+  if (handle->type != UV_UDP) {
+    return uv__set_artificial_error(handle->loop, UV_EINVAL);
+  }
+
+  return uv__udp_recv_stop(handle);
+}
 
 #ifdef _WIN32
 static UINT __stdcall uv__thread_start(void *ctx_v)
@@ -351,4 +348,89 @@ int uv_thread_create(uv_thread_t *tid, void (*entry)(void *arg), void *arg) {
   }
 
   return 0;
+}
+
+
+unsigned long uv_thread_self(void) {
+#ifdef _WIN32
+  return (unsigned long) GetCurrentThreadId();
+#else
+  return (unsigned long) pthread_self();
+#endif
+}
+
+
+void uv_walk(uv_loop_t* loop, uv_walk_cb walk_cb, void* arg) {
+  QUEUE* q;
+  uv_handle_t* h;
+
+  QUEUE_FOREACH(q, &loop->handle_queue) {
+    h = QUEUE_DATA(q, uv_handle_t, handle_queue);
+    if (h->flags & UV__HANDLE_INTERNAL) continue;
+    walk_cb(h, arg);
+  }
+}
+
+
+#ifndef NDEBUG
+static void uv__print_handles(uv_loop_t* loop, int only_active) {
+  const char* type;
+  QUEUE* q;
+  uv_handle_t* h;
+
+  if (loop == NULL)
+    loop = uv_default_loop();
+
+  QUEUE_FOREACH(q, &loop->handle_queue) {
+    h = QUEUE_DATA(q, uv_handle_t, handle_queue);
+
+    if (only_active && !uv__is_active(h))
+      continue;
+
+    switch (h->type) {
+#define X(uc, lc) case UV_##uc: type = #lc; break;
+      UV_HANDLE_TYPE_MAP(X)
+#undef X
+      default: type = "<unknown>";
+    }
+
+    fprintf(stderr,
+            "[%c%c%c] %-8s %p\n",
+            "R-"[!(h->flags & UV__HANDLE_REF)],
+            "A-"[!(h->flags & UV__HANDLE_ACTIVE)],
+            "I-"[!(h->flags & UV__HANDLE_INTERNAL)],
+            type,
+            (void*)h);
+  }
+}
+
+
+void uv_print_all_handles(uv_loop_t* loop) {
+  uv__print_handles(loop, 0);
+}
+
+
+void uv_print_active_handles(uv_loop_t* loop) {
+  uv__print_handles(loop, 1);
+}
+#endif
+
+
+void uv_ref(uv_handle_t* handle) {
+  uv__handle_ref(handle);
+}
+
+
+void uv_unref(uv_handle_t* handle) {
+  uv__handle_unref(handle);
+}
+
+
+int uv_has_ref(const uv_handle_t* handle) {
+  return uv__has_ref(handle);
+}
+
+
+void uv_stop(uv_loop_t* loop) {
+  loop->stop_flag = 1;
 }

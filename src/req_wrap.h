@@ -23,6 +23,7 @@
 #define REQ_WRAP_H_
 
 #include "ngx-queue.h"
+#include "node_internals.h"
 
 namespace node {
 
@@ -35,18 +36,19 @@ template <typename T>
 class ReqWrap {
  public:
   ReqWrap() {
-    v8::HandleScope scope;
-    object_ = v8::Persistent<v8::Object>::New(v8::Object::New());
+    v8::HandleScope scope(node_isolate);
+    object_ = v8::Persistent<v8::Object>::New(node_isolate, v8::Object::New());
 
-    v8::Local<v8::Value> domain = v8::Context::GetCurrent()
-                                  ->Global()
-                                  ->Get(process_symbol)
-                                  ->ToObject()
-                                  ->Get(domain_symbol);
+    if (using_domains) {
+      v8::Local<v8::Value> domain = v8::Context::GetCurrent()
+                                    ->Global()
+                                    ->Get(process_symbol)
+                                    ->ToObject()
+                                    ->Get(domain_symbol);
 
-    if (!domain->IsUndefined()) {
-      // fprintf(stderr, "setting domain on ReqWrap\n");
-      object_->Set(domain_symbol, domain);
+      if (!domain->IsUndefined()) {
+        object_->Set(domain_symbol, domain);
+      }
     }
 
     ngx_queue_insert_tail(&req_wrap_queue, &req_wrap_queue_);
@@ -58,7 +60,7 @@ class ReqWrap {
     // Assert that someone has called Dispatched()
     assert(req_.data == this);
     assert(!object_.IsEmpty());
-    object_.Dispose();
+    object_.Dispose(node_isolate);
     object_.Clear();
   }
 

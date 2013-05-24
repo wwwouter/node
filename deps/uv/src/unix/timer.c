@@ -21,104 +21,130 @@
 #include "uv.h"
 #include "internal.h"
 #include <assert.h>
+#include <limits.h>
 
 
-static int uv__timer_repeating(const uv_timer_t* timer) {
-  return timer->flags & UV_TIMER_REPEAT;
-}
-
-
-static void uv__timer_cb(EV_P_ ev_timer* w, int revents) {
-  uv_timer_t* timer = container_of(w, uv_timer_t, timer_watcher);
-
-  assert(uv__timer_active(timer));
-
-  if (!uv__timer_repeating(timer)) {
-    timer->flags &= ~UV_TIMER_ACTIVE;
-    ev_ref(EV_A);
-  }
-
-  if (timer->timer_cb) {
-    timer->timer_cb(timer, 0);
-  }
-}
-
-
-int uv_timer_init(uv_loop_t* loop, uv_timer_t* timer) {
-  uv__handle_init(loop, (uv_handle_t*)timer, UV_TIMER);
-  loop->counters.timer_init++;
-
-  ev_init(&timer->timer_watcher, uv__timer_cb);
-
-  return 0;
-}
-
-
-int uv_timer_start(uv_timer_t* timer, uv_timer_cb cb, int64_t timeout,
-    int64_t repeat) {
-  if (uv__timer_active(timer)) {
+static int uv__timer_cmp(const uv_timer_t* a, const uv_timer_t* b) {
+  if (a->timeout < b->timeout)
     return -1;
-  }
-
-  timer->timer_cb = cb;
-  timer->flags |= UV_TIMER_ACTIVE;
-
-  if (repeat)
-    timer->flags |= UV_TIMER_REPEAT;
-  else
-    timer->flags &= ~UV_TIMER_REPEAT;
-
-  ev_timer_set(&timer->timer_watcher, timeout / 1000.0, repeat / 1000.0);
-  ev_timer_start(timer->loop->ev, &timer->timer_watcher);
-  ev_unref(timer->loop->ev);
-
-  return 0;
-}
-
-
-int uv_timer_stop(uv_timer_t* timer) {
-  if (uv__timer_active(timer)) {
-    ev_ref(timer->loop->ev);
-  }
-
-  timer->flags &= ~(UV_TIMER_ACTIVE | UV_TIMER_REPEAT);
-  ev_timer_stop(timer->loop->ev, &timer->timer_watcher);
-
-  return 0;
-}
-
-
-int uv_timer_again(uv_timer_t* timer) {
-  if (!uv__timer_active(timer)) {
-    uv__set_artificial_error(timer->loop, UV_EINVAL);
+  if (a->timeout > b->timeout)
+    return 1;
+  /*
+   *  compare start_id when both has the same timeout. start_id is
+   *  allocated with loop->timer_counter in uv_timer_start().
+   */
+  if (a->start_id < b->start_id)
     return -1;
-  }
-
-  assert(uv__timer_repeating(timer));
-  ev_timer_again(timer->loop->ev, &timer->timer_watcher);
+  if (a->start_id > b->start_id)
+    return 1;
   return 0;
 }
 
 
-void uv_timer_set_repeat(uv_timer_t* timer, int64_t repeat) {
-  assert(timer->type == UV_TIMER);
-  timer->timer_watcher.repeat = repeat / 1000.0;
+RB_GENERATE_STATIC(uv__timers, uv_timer_s, tree_entry, uv__timer_cmp)
 
-  if (repeat)
-    timer->flags |= UV_TIMER_REPEAT;
-  else
-    timer->flags &= ~UV_TIMER_REPEAT;
+
+int uv_timer_init(uv_loop_t* loop, uv_timer_t* handle) {
+  uv__handle_init(loop, (uv_handle_t*)handle, UV_TIMER);
+  handle->timer_cb = NULL;
+  handle->repeat = 0;
+
+  return 0;
 }
 
 
-int64_t uv_timer_get_repeat(uv_timer_t* timer) {
-  assert(timer->type == UV_TIMER);
-  return (int64_t)(1000 * timer->timer_watcher.repeat);
+int uv_timer_start(uv_timer_t* handle,
+                   uv_timer_cb cb,
+                   uint64_t timeout,
+                   uint64_t repeat) {
+  uint64_t clamped_timeout;
+
+  if (uv__is_active(handle))
+    uv_timer_stop(handle);
+
+  clamped_timeout = handle->loop->time + timeout;
+  if (clamped_timeout < timeout)
+    clamped_timeout = (uint64_t) -1;
+
+  handle->timer_cb = cb;
+  handle->timeout = clamped_timeout;
+  handle->repeat = repeat;
+  /* start_id is the second index to be compared in uv__timer_cmp() */
+  handle->start_id = handle->loop->timer_counter++;
+
+  RB_INSERT(uv__timers, &handle->loop->timer_handles, handle);
+  uv__handle_start(handle);
+
+  return 0;
 }
 
 
-int uv__timer_active(const uv_timer_t* timer) {
-  return timer->flags & UV_TIMER_ACTIVE;
+int uv_timer_stop(uv_timer_t* handle) {
+  if (!uv__is_active(handle))
+    return 0;
+
+  RB_REMOVE(uv__timers, &handle->loop->timer_handles, handle);
+  uv__handle_stop(handle);
+
+  return 0;
+}
+
+
+int uv_timer_again(uv_timer_t* handle) {
+  if (handle->timer_cb == NULL)
+    return uv__set_artificial_error(handle->loop, UV_EINVAL);
+
+  if (handle->repeat) {
+    uv_timer_stop(handle);
+    uv_timer_start(handle, handle->timer_cb, handle->repeat, handle->repeat);
+  }
+
+  return 0;
+}
+
+
+void uv_timer_set_repeat(uv_timer_t* handle, uint64_t repeat) {
+  handle->repeat = repeat;
+}
+
+
+uint64_t uv_timer_get_repeat(const uv_timer_t* handle) {
+  return handle->repeat;
+}
+
+
+int uv__next_timeout(const uv_loop_t* loop) {
+  const uv_timer_t* handle;
+  uint64_t diff;
+
+  /* RB_MIN expects a non-const tree root. That's okay, it doesn't modify it. */
+  handle = RB_MIN(uv__timers, (struct uv__timers*) &loop->timer_handles);
+
+  if (handle == NULL)
+    return -1; /* block indefinitely */
+
+  if (handle->timeout <= loop->time)
+    return 0;
+
+  diff = handle->timeout - loop->time;
+  if (diff > INT_MAX)
+    diff = INT_MAX;
+
+  return diff;
+}
+
+
+void uv__run_timers(uv_loop_t* loop) {
+  uv_timer_t* handle;
+
+  while ((handle = RB_MIN(uv__timers, &loop->timer_handles))) {
+    if (handle->timeout > loop->time)
+      break;
+
+    uv_timer_stop(handle);
+    uv_timer_again(handle);
+    handle->timer_cb(handle, 0);
+  }
 }
 
 

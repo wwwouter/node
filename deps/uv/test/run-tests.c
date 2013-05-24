@@ -19,8 +19,15 @@
  * IN THE SOFTWARE.
  */
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
+
+#ifdef _WIN32
+# include <io.h>
+#else
+# include <unistd.h>
+#endif
 
 #include "uv.h"
 #include "runner.h"
@@ -93,7 +100,7 @@ static int maybe_run_test(int argc, char **argv) {
 
   if (strcmp(argv[1], "spawn_helper3") == 0) {
     char buffer[256];
-    fgets(buffer, sizeof(buffer) - 1, stdin);
+    ASSERT(buffer == fgets(buffer, sizeof(buffer) - 1, stdin));
     buffer[sizeof(buffer) - 1] = '\0';
     fputs(buffer, stdout);
     return 1;
@@ -104,5 +111,49 @@ static int maybe_run_test(int argc, char **argv) {
     while (1) uv_sleep(10000);
   }
 
-  return run_test(argv[1], TEST_TIMEOUT, 0);
+  if (strcmp(argv[1], "spawn_helper5") == 0) {
+    const char out[] = "fourth stdio!\n";
+#ifdef _WIN32
+    DWORD bytes;
+    WriteFile((HANDLE) _get_osfhandle(3), out, sizeof(out) - 1, &bytes, NULL);
+#else
+    {
+      ssize_t r;
+
+      do
+        r = write(3, out, sizeof(out) - 1);
+      while (r == -1 && errno == EINTR);
+
+      fsync(3);
+    }
+#endif
+    return 1;
+  }
+
+  if (strcmp(argv[1], "spawn_helper6") == 0) {
+    int r;
+
+    r = fprintf(stdout, "hello world\n");
+    ASSERT(r > 0);
+
+    r = fprintf(stderr, "hello errworld\n");
+    ASSERT(r > 0);
+
+    return 1;
+  }
+
+  if (strcmp(argv[1], "spawn_helper7") == 0) {
+    int r;
+    char *test;
+    /* Test if the test value from the parent is still set */
+    test = getenv("ENV_TEST");
+    ASSERT(test != NULL);
+
+    r = fprintf(stdout, "%s", test);
+    ASSERT(r > 0);
+
+    return 1;
+  }
+
+  return run_test(argv[1], TEST_TIMEOUT, 0, 1);
 }

@@ -28,11 +28,6 @@
 /*
  * Ntdll headers
  */
-#ifndef _NTDEF_
-  typedef LONG NTSTATUS;
-  typedef NTSTATUS *PNTSTATUS;
-#endif
-
 #ifndef STATUS_SEVERITY_SUCCESS
 # define STATUS_SEVERITY_SUCCESS 0x0
 #endif
@@ -4137,9 +4132,17 @@ typedef struct _FILE_BASIC_INFORMATION {
   DWORD FileAttributes;
 } FILE_BASIC_INFORMATION, *PFILE_BASIC_INFORMATION;
 
+typedef struct _FILE_DISPOSITION_INFORMATION {
+  BOOLEAN DeleteFile;
+} FILE_DISPOSITION_INFORMATION, *PFILE_DISPOSITION_INFORMATION;
+
 typedef struct _FILE_MODE_INFORMATION {
   ULONG Mode;
 } FILE_MODE_INFORMATION, *PFILE_MODE_INFORMATION;
+
+typedef struct _FILE_END_OF_FILE_INFORMATION {
+  LARGE_INTEGER  EndOfFile;
+} FILE_END_OF_FILE_INFORMATION, *PFILE_END_OF_FILE_INFORMATION;
 
 #define FILE_SYNCHRONOUS_IO_ALERT               0x00000010
 #define FILE_SYNCHRONOUS_IO_NONALERT            0x00000020
@@ -4202,6 +4205,19 @@ typedef enum _FILE_INFORMATION_CLASS {
   FileRemoteProtocolInformation,
   FileMaximumInformation
 } FILE_INFORMATION_CLASS, *PFILE_INFORMATION_CLASS;
+
+typedef struct _SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION {
+    LARGE_INTEGER IdleTime;
+    LARGE_INTEGER KernelTime;
+    LARGE_INTEGER UserTime;
+    LARGE_INTEGER DpcTime;
+    LARGE_INTEGER InterruptTime;
+    ULONG InterruptCount;
+} SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION, *PSYSTEM_PROCESSOR_PERFORMANCE_INFORMATION;
+
+#ifndef SystemProcessorPerformanceInformation
+# define SystemProcessorPerformanceInformation 8
+#endif
 
 #ifndef DEVICE_TYPE
 # define DEVICE_TYPE DWORD
@@ -4319,6 +4335,12 @@ typedef NTSTATUS (NTAPI *sNtSetInformationFile)
                   ULONG Length,
                   FILE_INFORMATION_CLASS FileInformationClass);
 
+typedef NTSTATUS (NTAPI *sNtQuerySystemInformation)
+                 (UINT SystemInformationClass,
+                  PVOID SystemInformation,
+                  ULONG SystemInformationLength,
+                  PULONG ReturnLength);
+
 
 /*
  * Kernel32 headers
@@ -4357,6 +4379,11 @@ typedef NTSTATUS (NTAPI *sNtSetInformationFile)
 # define ENABLE_EXTENDED_FLAGS 0x80
 #endif
 
+/* from winerror.h */
+#ifndef ERROR_SYMLINK_NOT_SUPPORTED
+# define ERROR_SYMLINK_NOT_SUPPORTED 1464
+#endif
+
 typedef BOOL (WINAPI *sGetQueuedCompletionStatusEx)
              (HANDLE CompletionPort,
               LPOVERLAPPED_ENTRY lpCompletionPortEntries,
@@ -4373,6 +4400,10 @@ typedef BOOLEAN (WINAPI* sCreateSymbolicLinkW)
                 (LPCWSTR lpSymlinkFileName,
                  LPCWSTR lpTargetFileName,
                  DWORD dwFlags);
+
+typedef BOOL (WINAPI* sCancelIoEx)
+             (HANDLE hFile,
+              LPOVERLAPPED lpOverlapped);
 
 typedef VOID (WINAPI* sInitializeSRWLock)
              (PSRWLOCK SRWLock);
@@ -4395,19 +4426,40 @@ typedef VOID (WINAPI* sReleaseSRWLockShared)
 typedef VOID (WINAPI* sReleaseSRWLockExclusive)
              (PSRWLOCK SRWLock);
 
+typedef VOID (WINAPI* sInitializeConditionVariable)
+             (PCONDITION_VARIABLE ConditionVariable);
+
+typedef BOOL (WINAPI* sSleepConditionVariableCS)
+             (PCONDITION_VARIABLE ConditionVariable,
+              PCRITICAL_SECTION CriticalSection,
+              DWORD dwMilliseconds);
+
+typedef BOOL (WINAPI* sSleepConditionVariableSRW)
+             (PCONDITION_VARIABLE ConditionVariable,
+              PSRWLOCK SRWLock,
+              DWORD dwMilliseconds,
+              ULONG Flags);
+
+typedef VOID (WINAPI* sWakeAllConditionVariable)
+             (PCONDITION_VARIABLE ConditionVariable);
+
+typedef VOID (WINAPI* sWakeConditionVariable)
+             (PCONDITION_VARIABLE ConditionVariable);
 
 
-/* Ntapi function pointers */
+/* Ntdll function pointers */
 extern sRtlNtStatusToDosError pRtlNtStatusToDosError;
 extern sNtDeviceIoControlFile pNtDeviceIoControlFile;
 extern sNtQueryInformationFile pNtQueryInformationFile;
 extern sNtSetInformationFile pNtSetInformationFile;
+extern sNtQuerySystemInformation pNtQuerySystemInformation;
 
 
 /* Kernel32 function pointers */
 extern sGetQueuedCompletionStatusEx pGetQueuedCompletionStatusEx;
 extern sSetFileCompletionNotificationModes pSetFileCompletionNotificationModes;
 extern sCreateSymbolicLinkW pCreateSymbolicLinkW;
+extern sCancelIoEx pCancelIoEx;
 extern sInitializeSRWLock pInitializeSRWLock;
 extern sAcquireSRWLockShared pAcquireSRWLockShared;
 extern sAcquireSRWLockExclusive pAcquireSRWLockExclusive;
@@ -4415,5 +4467,10 @@ extern sTryAcquireSRWLockShared pTryAcquireSRWLockShared;
 extern sTryAcquireSRWLockExclusive pTryAcquireSRWLockExclusive;
 extern sReleaseSRWLockShared pReleaseSRWLockShared;
 extern sReleaseSRWLockExclusive pReleaseSRWLockExclusive;
+extern sInitializeConditionVariable pInitializeConditionVariable;
+extern sSleepConditionVariableCS pSleepConditionVariableCS;
+extern sSleepConditionVariableSRW pSleepConditionVariableSRW;
+extern sWakeAllConditionVariable pWakeAllConditionVariable;
+extern sWakeConditionVariable pWakeConditionVariable;
 
 #endif /* UV_WIN_WINAPI_H_ */
